@@ -1,0 +1,7 @@
+[project]
+name = "quantum-dot-mzi-mesh"
+version = "0.1.0"
+dependencies = ["gdsfactory"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

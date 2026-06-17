@@ -1,0 +1,4 @@
+Metadata-Version: 2.4
+Name: quantum-dot-mzi-mesh
+Version: 0.1.0
+Requires-Dist: gdsfactory

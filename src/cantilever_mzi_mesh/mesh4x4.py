@@ -5,20 +5,6 @@ from .u2_block import u2_block
 
 from qm_pic_tech.qm_pic_components.qm_pic_metal_pad import qm_pic_metal_pad
 
-LEFT_GROUP = ["U23_a", "U01_a", "U12_a"]
-
-LEFT_SIGNALS = [
-    ("U23_a", "es1"),
-    ("U23_a", "es2"),
-    ("U12_a", "es1"),
-    ("U12_a", "es2"),
-]
-
-LEFT_GROUNDS = [
-    ("U23_a", "eg1"), ("U23_a", "eg2"), ("U23_a", "eg3"),
-    ("U01_a", "eg1"), ("U01_a", "eg2"), ("U01_a", "eg3"),
-    ("U12_a", "eg1"), ("U12_a", "eg2"), ("U12_a", "eg3"),
-]
 
 @gf.cell
 def mesh4x4(
@@ -44,7 +30,6 @@ def mesh4x4(
         (3, 1.5, "U12_b"),
     ]
 
-
     refs = {}
 
     for col, mode_mid, name in placements:
@@ -62,15 +47,13 @@ def mesh4x4(
     # --- optical port labels ---
     for name, ref in refs.items():
         for p in ref.ports:
-#            if p.port_type == "optical":
-                c.add_label(
-                    f"{name}:{p.name}",
-                    position=p.center,
-                    layer=(200, 0),
-                )
+            c.add_label(
+                f"{name}:{p.name}",
+                position=p.center,
+                layer=(200, 0),
+            )
 
-    
-        # --- routing ---
+    # --- routing ---
     def route_pairs(c, refs, pairs, cross_section, radius=30):
         for src_block, src_port, dst_block, dst_port in pairs:
             gf.routing.route_single(
@@ -81,7 +64,16 @@ def mesh4x4(
                 radius=radius,
             )
 
-    def place_device_pads(c, refs, pad, device_name, pad_y, dx=140, gnd_extra_y=180, x0_override=None):
+    def place_device_pads(
+        c,
+        refs,
+        pad,
+        device_name,
+        pad_y,
+        dx=140,
+        gnd_extra_y=180,
+        x0_override=None,
+    ):
         x0 = refs[device_name].center[0] if x0_override is None else x0_override
 
         pads = {}
@@ -100,85 +92,6 @@ def mesh4x4(
 
         return pads
 
-    def route_device_electrical(
-        c,
-        refs,
-        pad_refs,
-        device_name,
-        signal_lane_y,
-        ground_entry_y,
-        ground_loop_y,
-        ground_outer_dx=230,
-        signal_trunk_x=None,
-        ground_trunk_x=None,
-        ground_pitch=35,
-        ground_pre_waypoints=None,
-        route_signals=True,
-        route_grounds=True,
-    ):
-        ground_trunk_x = (
-            pad_refs[f"GND_{device_name}"].center[0]
-            if ground_trunk_x is None
-            else ground_trunk_x
-        )
-
-        if route_signals:
-            for i, port_name in enumerate(["es1", "es2"]):
-                p1 = refs[device_name].ports[port_name]
-                p2 = pad_refs[f"{device_name}_{port_name}"].ports["e1"]
-                trunk_x = p2.center[0] if signal_trunk_x is None else signal_trunk_x
-                lane_y = signal_lane_y - i * 30
-
-                gf.routing.route_single(
-                    component=c,
-                    port1=p1,
-                    port2=p2,
-                    cross_section="xs_M1_strip",
-                    radius=10,
-                    waypoints=[
-                        (p1.center[0], lane_y),
-                        (trunk_x, lane_y),
-                        (trunk_x, p2.center[1] - 60),
-                        (p2.center[0], p2.center[1] - 60),
-                    ],
-                )
-
-        if route_grounds:
-            p_gnd = pad_refs[f"GND_{device_name}"].ports["e1"]
-            left_outer_x = pad_refs[f"{device_name}_es1"].center[0] - ground_outer_dx
-            right_outer_x = pad_refs[f"{device_name}_es2"].center[0] + ground_outer_dx
-
-            for i, port_name in enumerate(["eg1", "eg2", "eg3"]):
-                p1 = refs[device_name].ports[port_name]
-                entry_y = ground_entry_y - i * ground_pitch
-                side_x = left_outer_x if port_name == "eg1" else right_outer_x
-                if port_name == "eg2":
-                    side_x = ground_trunk_x
-
-                if ground_pre_waypoints is None:
-                    waypoints = [(p1.center[0], entry_y)]
-                else:
-                    waypoints = ground_pre_waypoints(p1, port_name, i, entry_y)
-
-                waypoints.extend(
-                    [
-                        (side_x, entry_y),
-                        (side_x, ground_loop_y),
-                        (ground_trunk_x, ground_loop_y),
-                        (ground_trunk_x, p_gnd.center[1] - 80),
-                        (p_gnd.center[0], p_gnd.center[1] - 80),
-                    ]
-                )
-
-                gf.routing.route_single(
-                    component=c,
-                    port1=p1,
-                    port2=p_gnd,
-                    cross_section="xs_M1_strip",
-                    radius=10,
-                    waypoints=waypoints,
-                )
-    
     route_pairs(
         c,
         refs,
@@ -195,10 +108,9 @@ def mesh4x4(
         cross_section=params.cross_section,
         radius=30,
     )
-    
-    
+
     # -------------------------------------------------
-    # Left-group electrical pads
+    # Electrical pads
     # -------------------------------------------------
     pad = qm_pic_metal_pad(
         width=100,
@@ -208,34 +120,36 @@ def mesh4x4(
 
     pad_y = c.bbox().top + 250
 
-    left_pad_refs = {}
+    pad_refs = {}
 
-    x_dev1 = refs["U23_a"].center[0]
-    x_dev3 = refs["U12_a"].center[0]
-    x_dev2 = 0.5 * (x_dev1 + x_dev3)
+    def place_u2_group_pads(upper_device, center_device, lower_device):
+        x_upper = refs[upper_device].center[0]
+        x_lower = refs[lower_device].center[0]
+        x_center = 0.5 * (x_upper + x_lower)
 
-    left_pad_refs.update(place_device_pads(c, refs, pad, "U23_a", pad_y, dx=140))
-    left_pad_refs.update(place_device_pads(c, refs, pad, "U01_a", pad_y, dx=140, x0_override=x_dev2))
-    left_pad_refs.update(place_device_pads(c, refs, pad, "U12_a", pad_y, dx=140))
+        pad_refs.update(place_device_pads(c, refs, pad, upper_device, pad_y, dx=140))
+        pad_refs.update(
+            place_device_pads(
+                c,
+                refs,
+                pad,
+                center_device,
+                pad_y,
+                dx=140,
+                x0_override=x_center,
+            )
+        )
+        pad_refs.update(place_device_pads(c, refs, pad, lower_device, pad_y, dx=140))
 
-    u01_corridor_x = refs["U01_a"].ports["eg1"].center[0] - 130
-    u01_lower_corridor_y = refs["U01_a"].ports["eg1"].center[1] + 80
-
-    def route_u01_ground_escape(p1, _port_name, i, entry_y):
-        lane_y = u01_lower_corridor_y - i * 18
-        return [
-            (p1.center[0], lane_y),
-            (u01_corridor_x, lane_y),
-            (u01_corridor_x, entry_y),
-            (p1.center[0], entry_y),
-        ]
+    place_u2_group_pads("U23_a", "U01_a", "U12_a")
+    place_u2_group_pads("U23_b", "U01_b", "U12_b")
 
     def route_signal_bundle(device_name):
         split_y = pad_y - 125
 
         for port_name in ["es1", "es2"]:
             p1 = refs[device_name].ports[port_name]
-            p2 = left_pad_refs[f"{device_name}_{port_name}"].ports["e1"]
+            p2 = pad_refs[f"{device_name}_{port_name}"].ports["e1"]
 
             gf.routing.route_single(
                 component=c,
@@ -250,7 +164,7 @@ def mesh4x4(
             )
 
     def route_ground_bundle(device_name):
-        gnd_ref = left_pad_refs[f"GND_{device_name}"]
+        gnd_ref = pad_refs[f"GND_{device_name}"]
         p_gnd_bottom = gnd_ref.ports["e1"]
         pad_side_y = gnd_ref.center[1]
         pad_half_width = 50.5
@@ -281,8 +195,8 @@ def mesh4x4(
         )
 
         escape_y = pad_y - 210
-        left_outer_x = left_pad_refs[f"{device_name}_es1"].center[0] - 120
-        right_outer_x = left_pad_refs[f"{device_name}_es2"].center[0] + 120
+        left_outer_x = pad_refs[f"{device_name}_es1"].center[0] - 120
+        right_outer_x = pad_refs[f"{device_name}_es2"].center[0] + 120
 
         gf.routing.route_single(
             component=c,
@@ -310,9 +224,8 @@ def mesh4x4(
             ],
         )
 
-    def route_u01_bundle():
-        device_name = "U01_a"
-        gnd_ref = left_pad_refs[f"GND_{device_name}"]
+    def route_u01_bundle(device_name):
+        gnd_ref = pad_refs[f"GND_{device_name}"]
         p_gnd_bottom = gnd_ref.ports["e1"]
         pad_side_y = gnd_ref.center[1]
         pad_half_width = 50.5
@@ -335,13 +248,6 @@ def mesh4x4(
             "es2": 32,
             "eg3": 64,
         }
-        exit_y_offsets = {
-            "eg1": -32,
-            "es1": -16,
-            "eg2": 0,
-            "es2": 16,
-            "eg3": 32,
-        }
 
         p_gnd_left = gf.Port(
             name=f"{device_name}_gnd_left",
@@ -362,7 +268,7 @@ def mesh4x4(
 
         for port_name in ["es1", "es2"]:
             p1 = refs[device_name].ports[port_name]
-            p2 = left_pad_refs[f"{device_name}_{port_name}"].ports["e1"]
+            p2 = pad_refs[f"{device_name}_{port_name}"].ports["e1"]
             lane_y = bundle_y + lane_offsets[port_name]
             turn_x = bundle_x + turn_offsets[port_name]
 
@@ -393,8 +299,8 @@ def mesh4x4(
             ],
         )
 
-        left_outer_x = left_pad_refs[f"{device_name}_es1"].center[0] - 120
-        right_outer_x = left_pad_refs[f"{device_name}_es2"].center[0] + 120
+        left_outer_x = pad_refs[f"{device_name}_es1"].center[0] - 120
+        right_outer_x = pad_refs[f"{device_name}_es2"].center[0] + 120
 
         p1 = refs[device_name].ports["eg1"]
         gf.routing.route_single(
@@ -428,38 +334,20 @@ def mesh4x4(
             ],
         )
 
-    route_device_electrical(
-        c,
-        refs,
-        left_pad_refs,
-        "U23_a",
-        signal_lane_y=pad_y - 120,
-        ground_entry_y=pad_y - 40,
-        ground_loop_y=pad_y + 135,
-        ground_outer_dx=90,
-        ground_pitch=45,
-        route_signals=False,
-        route_grounds=False,
-    )
     route_signal_bundle("U23_a")
     route_ground_bundle("U23_a")
 
-    route_u01_bundle()
+    route_u01_bundle("U01_a")
 
-    route_device_electrical(
-        c,
-        refs,
-        left_pad_refs,
-        "U12_a",
-        signal_lane_y=pad_y - 30,
-        ground_entry_y=pad_y - 70,
-        ground_loop_y=pad_y + 135,
-        ground_outer_dx=90,
-        ground_pitch=45,
-        route_signals=False,
-        route_grounds=False,
-    )
     route_signal_bundle("U12_a")
     route_ground_bundle("U12_a")
+
+    route_signal_bundle("U23_b")
+    route_ground_bundle("U23_b")
+
+    route_u01_bundle("U01_b")
+
+    route_signal_bundle("U12_b")
+    route_ground_bundle("U12_b")
 
     return c

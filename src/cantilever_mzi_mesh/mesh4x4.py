@@ -2,12 +2,8 @@ from pathlib import Path
 
 import gdsfactory as gf
 
-try:
-    from .params import U2Params
-    from .u2_block import u2_block
-except ImportError:
-    from params import U2Params
-    from u2_block import u2_block
+from .params import U2Params
+from .u2_block import u2_block
 
 from qm_pic_tech.qm_pic_components.qm_pic_metal_pad import qm_pic_metal_pad
 

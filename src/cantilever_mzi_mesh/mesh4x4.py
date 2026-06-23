@@ -99,6 +99,85 @@ def mesh4x4(
             c.add_label(pad_name, position=r.center, layer=(201, 0))
 
         return pads
+
+    def route_device_electrical(
+        c,
+        refs,
+        pad_refs,
+        device_name,
+        signal_lane_y,
+        ground_entry_y,
+        ground_loop_y,
+        ground_outer_dx=230,
+        signal_trunk_x=None,
+        ground_trunk_x=None,
+        ground_pitch=35,
+        ground_pre_waypoints=None,
+        route_signals=True,
+        route_grounds=True,
+    ):
+        ground_trunk_x = (
+            pad_refs[f"GND_{device_name}"].center[0]
+            if ground_trunk_x is None
+            else ground_trunk_x
+        )
+
+        if route_signals:
+            for i, port_name in enumerate(["es1", "es2"]):
+                p1 = refs[device_name].ports[port_name]
+                p2 = pad_refs[f"{device_name}_{port_name}"].ports["e1"]
+                trunk_x = p2.center[0] if signal_trunk_x is None else signal_trunk_x
+                lane_y = signal_lane_y - i * 30
+
+                gf.routing.route_single(
+                    component=c,
+                    port1=p1,
+                    port2=p2,
+                    cross_section="xs_M1_strip",
+                    radius=10,
+                    waypoints=[
+                        (p1.center[0], lane_y),
+                        (trunk_x, lane_y),
+                        (trunk_x, p2.center[1] - 60),
+                        (p2.center[0], p2.center[1] - 60),
+                    ],
+                )
+
+        if route_grounds:
+            p_gnd = pad_refs[f"GND_{device_name}"].ports["e1"]
+            left_outer_x = pad_refs[f"{device_name}_es1"].center[0] - ground_outer_dx
+            right_outer_x = pad_refs[f"{device_name}_es2"].center[0] + ground_outer_dx
+
+            for i, port_name in enumerate(["eg1", "eg2", "eg3"]):
+                p1 = refs[device_name].ports[port_name]
+                entry_y = ground_entry_y - i * ground_pitch
+                side_x = left_outer_x if port_name == "eg1" else right_outer_x
+                if port_name == "eg2":
+                    side_x = ground_trunk_x
+
+                if ground_pre_waypoints is None:
+                    waypoints = [(p1.center[0], entry_y)]
+                else:
+                    waypoints = ground_pre_waypoints(p1, port_name, i, entry_y)
+
+                waypoints.extend(
+                    [
+                        (side_x, entry_y),
+                        (side_x, ground_loop_y),
+                        (ground_trunk_x, ground_loop_y),
+                        (ground_trunk_x, p_gnd.center[1] - 80),
+                        (p_gnd.center[0], p_gnd.center[1] - 80),
+                    ]
+                )
+
+                gf.routing.route_single(
+                    component=c,
+                    port1=p1,
+                    port2=p_gnd,
+                    cross_section="xs_M1_strip",
+                    radius=10,
+                    waypoints=waypoints,
+                )
     
     route_pairs(
         c,
@@ -139,205 +218,248 @@ def mesh4x4(
     left_pad_refs.update(place_device_pads(c, refs, pad, "U01_a", pad_y, dx=140, x0_override=x_dev2))
     left_pad_refs.update(place_device_pads(c, refs, pad, "U12_a", pad_y, dx=140))
 
-    # Shared U01_a routing controls
-    u01_turn_x = left_pad_refs["GND_U01_a"].center[0]
-    u01_turn_y = pad_y - 600
+    u01_corridor_x = refs["U01_a"].ports["eg1"].center[0] - 130
+    u01_lower_corridor_y = refs["U01_a"].ports["eg1"].center[1] + 80
 
-    # -------------------------------------------------
-    # Custom U12_a ground routing around signal pads
-    # -------------------------------------------------
-    gnd_ref = left_pad_refs["GND_U12_a"]
+    def route_u01_ground_escape(p1, _port_name, i, entry_y):
+        lane_y = u01_lower_corridor_y - i * 18
+        return [
+            (p1.center[0], lane_y),
+            (u01_corridor_x, lane_y),
+            (u01_corridor_x, entry_y),
+            (p1.center[0], entry_y),
+        ]
 
-    p_eg1 = refs["U12_a"].ports["eg1"]
-    p_eg2 = refs["U12_a"].ports["eg2"]
-    p_eg3 = refs["U12_a"].ports["eg3"]
-    p_gnd = gnd_ref.ports["e1"]
+    def route_signal_bundle(device_name):
+        split_y = pad_y - 125
 
-    gnd_lane_y = pad_y + 100
-    left_escape_x = p_gnd.center[0] - 250
-    right_escape_x = p_gnd.center[0] + 250
+        for port_name in ["es1", "es2"]:
+            p1 = refs[device_name].ports[port_name]
+            p2 = left_pad_refs[f"{device_name}_{port_name}"].ports["e1"]
 
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg2,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg2.center[0], gnd_lane_y - 50),
-            (u01_turn_x, gnd_lane_y - 50),
-            (u01_turn_x, p_gnd.center[1] - 80),
-            (p_gnd.center[0], p_gnd.center[1] - 80),
-        ],
-    )
+            gf.routing.route_single(
+                component=c,
+                port1=p1,
+                port2=p2,
+                cross_section="xs_M1_strip",
+                radius=10,
+                waypoints=[
+                    (p1.center[0], split_y),
+                    (p2.center[0], split_y),
+                ],
+            )
 
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg1,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        # left ground
-        waypoints=[
-            (p_eg1.center[0], gnd_lane_y - 100),
-            (u01_turn_x, gnd_lane_y - 100),
-            (left_escape_x, gnd_lane_y - 100),
-            (left_escape_x, p_gnd.center[1] - 80),
-            (p_gnd.center[0], p_gnd.center[1] - 80),
-        ],
-    )
+    def route_ground_bundle(device_name):
+        gnd_ref = left_pad_refs[f"GND_{device_name}"]
+        p_gnd_bottom = gnd_ref.ports["e1"]
+        pad_side_y = gnd_ref.center[1]
+        pad_half_width = 50.5
 
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg3,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        # right ground
-        waypoints=[
-            (p_eg3.center[0], gnd_lane_y - 150),
-            (u01_turn_x, gnd_lane_y - 150),
-            (right_escape_x, gnd_lane_y - 150),
-            (right_escape_x, p_gnd.center[1] - 80),
-            (p_gnd.center[0], p_gnd.center[1] - 80),
-        ],
-    )
-
-    # -------------------------------------------------
-    # Custom U23_a ground routing around signal pads
-    # -------------------------------------------------
-    gnd_ref = left_pad_refs["GND_U23_a"]
-
-    p_eg1 = refs["U23_a"].ports["eg1"]
-    p_eg2 = refs["U23_a"].ports["eg2"]
-    p_eg3 = refs["U23_a"].ports["eg3"]
-    p_gnd = gnd_ref.ports["e1"]
-
-    gnd_lane_y = pad_y + 150
-    left_escape_x = p_gnd.center[0] - 250
-    right_escape_x = p_gnd.center[0] + 250
-
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg2,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg2.center[0], gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ],
-    )
-
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg1,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg1.center[0], gnd_lane_y - 250),
-            (left_escape_x, gnd_lane_y - 250),
-            (left_escape_x, gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ],
-    )
-
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg3,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg3.center[0], gnd_lane_y - 250),
-            (right_escape_x, gnd_lane_y - 250),
-            (right_escape_x, gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ],
-    )
-
-    # -------------------------------------------------
-    # Custom U01_a signal routing to middle pad cluster
-    # -------------------------------------------------
-
-    for i, port_name in enumerate(["es1", "es2"]):
-        p1 = refs["U01_a"].ports[port_name]
-        p2 = left_pad_refs[f"U01_a_{port_name}"].ports["e1"]
-
-        lane_y = u01_turn_y - i * 25
+        p_gnd_left = gf.Port(
+            name=f"{device_name}_gnd_left",
+            center=(gnd_ref.center[0] - pad_half_width, pad_side_y),
+            width=p_gnd_bottom.width,
+            orientation=180,
+            layer=p_gnd_bottom.layer,
+            port_type="electrical",
+        )
+        p_gnd_right = gf.Port(
+            name=f"{device_name}_gnd_right",
+            center=(gnd_ref.center[0] + pad_half_width, pad_side_y),
+            width=p_gnd_bottom.width,
+            orientation=0,
+            layer=p_gnd_bottom.layer,
+            port_type="electrical",
+        )
 
         gf.routing.route_single(
             component=c,
-            port1=p1,
-            port2=p2,
+            port1=refs[device_name].ports["eg2"],
+            port2=p_gnd_bottom,
+            cross_section="xs_M1_strip",
+            radius=10,
+        )
+
+        escape_y = pad_y - 210
+        left_outer_x = left_pad_refs[f"{device_name}_es1"].center[0] - 120
+        right_outer_x = left_pad_refs[f"{device_name}_es2"].center[0] + 120
+
+        gf.routing.route_single(
+            component=c,
+            port1=refs[device_name].ports["eg1"],
+            port2=p_gnd_left,
             cross_section="xs_M1_strip",
             radius=10,
             waypoints=[
-                (p1.center[0], lane_y),
-                (u01_turn_x, lane_y),
-                (u01_turn_x, p2.center[1] - 60),
-                (p2.center[0], p2.center[1] - 60),
+                (refs[device_name].ports["eg1"].center[0], escape_y),
+                (left_outer_x, escape_y),
+                (left_outer_x, pad_side_y),
             ],
         )
-    # -------------------------------------------------
-    # Custom U01_a ground routing to middle GND pad
-    # -------------------------------------------------
-    gnd_ref = left_pad_refs["GND_U01_a"]
 
-    p_eg1 = refs["U01_a"].ports["eg1"]
-    p_eg2 = refs["U01_a"].ports["eg2"]
-    p_eg3 = refs["U01_a"].ports["eg3"]
-    p_gnd = gnd_ref.ports["e1"]
+        gf.routing.route_single(
+            component=c,
+            port1=refs[device_name].ports["eg3"],
+            port2=p_gnd_right,
+            cross_section="xs_M1_strip",
+            radius=10,
+            waypoints=[
+                (refs[device_name].ports["eg3"].center[0], escape_y),
+                (right_outer_x, escape_y),
+                (right_outer_x, pad_side_y),
+            ],
+        )
 
-    # shared controls for U01_a GND bundle
-    u01_turn_x = left_pad_refs["GND_U01_a"].center[0]
-    gnd_lane_y = u01_turn_y
+    def route_u01_bundle():
+        device_name = "U01_a"
+        gnd_ref = left_pad_refs[f"GND_{device_name}"]
+        p_gnd_bottom = gnd_ref.ports["e1"]
+        pad_side_y = gnd_ref.center[1]
+        pad_half_width = 50.5
+        bundle_x = gnd_ref.center[0]
+        bundle_y = refs[device_name].ports["eg2"].center[1] + 175
+        split_y = pad_y - 125
+        escape_y = pad_y - 210
+        bundle_radius = 5
+        lane_offsets = {
+            "eg1": 32,
+            "es1": 16,
+            "eg2": 0,
+            "es2": -16,
+            "eg3": -32,
+        }
+        turn_offsets = {
+            "eg1": -64,
+            "es1": -32,
+            "eg2": 0,
+            "es2": 32,
+            "eg3": 64,
+        }
+        exit_y_offsets = {
+            "eg1": -32,
+            "es1": -16,
+            "eg2": 0,
+            "es2": 16,
+            "eg3": 32,
+        }
 
-    left_escape_x = p_gnd.center[0] - 250
-    right_escape_x = p_gnd.center[0] + 250
+        p_gnd_left = gf.Port(
+            name=f"{device_name}_gnd_left",
+            center=(gnd_ref.center[0] - pad_half_width, pad_side_y),
+            width=p_gnd_bottom.width,
+            orientation=180,
+            layer=p_gnd_bottom.layer,
+            port_type="electrical",
+        )
+        p_gnd_right = gf.Port(
+            name=f"{device_name}_gnd_right",
+            center=(gnd_ref.center[0] + pad_half_width, pad_side_y),
+            width=p_gnd_bottom.width,
+            orientation=0,
+            layer=p_gnd_bottom.layer,
+            port_type="electrical",
+        )
 
-    # center ground
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg2,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg2.center[0], gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ]
+        for port_name in ["es1", "es2"]:
+            p1 = refs[device_name].ports[port_name]
+            p2 = left_pad_refs[f"{device_name}_{port_name}"].ports["e1"]
+            lane_y = bundle_y + lane_offsets[port_name]
+            turn_x = bundle_x + turn_offsets[port_name]
+
+            gf.routing.route_single(
+                component=c,
+                port1=p1,
+                port2=p2,
+                cross_section="xs_M1_strip",
+                radius=bundle_radius,
+                waypoints=[
+                    (p1.center[0], lane_y),
+                    (turn_x, lane_y),
+                    (turn_x, split_y),
+                    (p2.center[0], split_y),
+                ],
+            )
+
+        p1 = refs[device_name].ports["eg2"]
+        gf.routing.route_single(
+            component=c,
+            port1=p1,
+            port2=p_gnd_bottom,
+            cross_section="xs_M1_strip",
+            radius=bundle_radius,
+            waypoints=[
+                (p1.center[0], bundle_y),
+                (bundle_x + turn_offsets["eg2"], bundle_y),
+            ],
+        )
+
+        left_outer_x = left_pad_refs[f"{device_name}_es1"].center[0] - 120
+        right_outer_x = left_pad_refs[f"{device_name}_es2"].center[0] + 120
+
+        p1 = refs[device_name].ports["eg1"]
+        gf.routing.route_single(
+            component=c,
+            port1=p1,
+            port2=p_gnd_left,
+            cross_section="xs_M1_strip",
+            radius=bundle_radius,
+            waypoints=[
+                (p1.center[0], bundle_y + lane_offsets["eg1"]),
+                (bundle_x + turn_offsets["eg1"], bundle_y + lane_offsets["eg1"]),
+                (bundle_x + turn_offsets["eg1"], escape_y),
+                (left_outer_x, escape_y),
+                (left_outer_x, pad_side_y),
+            ],
+        )
+
+        p1 = refs[device_name].ports["eg3"]
+        gf.routing.route_single(
+            component=c,
+            port1=p1,
+            port2=p_gnd_right,
+            cross_section="xs_M1_strip",
+            radius=bundle_radius,
+            waypoints=[
+                (p1.center[0], bundle_y + lane_offsets["eg3"]),
+                (bundle_x + turn_offsets["eg3"], bundle_y + lane_offsets["eg3"]),
+                (bundle_x + turn_offsets["eg3"], escape_y),
+                (right_outer_x, escape_y),
+                (right_outer_x, pad_side_y),
+            ],
+        )
+
+    route_device_electrical(
+        c,
+        refs,
+        left_pad_refs,
+        "U23_a",
+        signal_lane_y=pad_y - 120,
+        ground_entry_y=pad_y - 40,
+        ground_loop_y=pad_y + 135,
+        ground_outer_dx=90,
+        ground_pitch=45,
+        route_signals=False,
+        route_grounds=False,
     )
+    route_signal_bundle("U23_a")
+    route_ground_bundle("U23_a")
 
-    # left ground
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg1,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg1.center[0], gnd_lane_y - 250),
-            (left_escape_x, gnd_lane_y - 250),
-            (left_escape_x, gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ]
-    )
+    route_u01_bundle()
 
-    # right ground
-    gf.routing.route_single(
-        component=c,
-        port1=p_eg3,
-        port2=p_gnd,
-        cross_section="xs_M1_strip",
-        radius=10,
-        waypoints=[
-            (p_eg3.center[0], gnd_lane_y - 250),
-            (right_escape_x, gnd_lane_y - 250),
-            (right_escape_x, gnd_lane_y),
-            (p_gnd.center[0], gnd_lane_y),
-        ]
+    route_device_electrical(
+        c,
+        refs,
+        left_pad_refs,
+        "U12_a",
+        signal_lane_y=pad_y - 30,
+        ground_entry_y=pad_y - 70,
+        ground_loop_y=pad_y + 135,
+        ground_outer_dx=90,
+        ground_pitch=45,
+        route_signals=False,
+        route_grounds=False,
     )
+    route_signal_bundle("U12_a")
+    route_ground_bundle("U12_a")
 
     return c

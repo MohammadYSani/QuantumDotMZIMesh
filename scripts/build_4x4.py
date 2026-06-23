@@ -17,6 +17,7 @@ def main() -> None:
     )
 
     c = mesh4x4(params=params)
+    c.remove_layers(layers=[(1, 0)])
 
     out = Path("gds/cantilever_4x4_mzi_mesh.gds")
     out.parent.mkdir(exist_ok=True)

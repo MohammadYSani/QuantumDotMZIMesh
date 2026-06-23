@@ -10,4 +10,4 @@ class U2Params:
     push_pull: bool = True
     low_loss: bool = True
     routing_direction: str = "up"
-    cross_section: str = "xs_620"  # doubleCMZI currently supports xs_620/xs_737
+    cross_section: str = "xs_620"  # singleCMZI currently supports xs_620/xs_737

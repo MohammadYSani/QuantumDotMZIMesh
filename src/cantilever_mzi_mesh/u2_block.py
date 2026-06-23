@@ -1,7 +1,7 @@
 import gdsfactory as gf
 
 from qm_pic_tech import get_qm_pic_pdk
-from qm_pic_tech.qm_pic_components.qm_pic_doubleCMZI import qm_pic_doubleCMZI
+from qm_pic_tech.qm_pic_components.qm_pic_singleCMZI import qm_pic_singleCMZI
 
 try:
     from .params import U2Params
@@ -14,7 +14,7 @@ def u2_block(params: U2Params = U2Params()) -> gf.Component:
     pdk = get_qm_pic_pdk()
     pdk.activate()
 
-    return qm_pic_doubleCMZI(
+    return qm_pic_singleCMZI(
         Rbend90=params.Rbend90,
         cmod_width=params.cmod_width,
         cmod_overhang=params.cmod_overhang,

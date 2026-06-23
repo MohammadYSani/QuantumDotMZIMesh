@@ -3,7 +3,10 @@ import gdsfactory as gf
 from qm_pic_tech import get_qm_pic_pdk
 from qm_pic_tech.qm_pic_components.qm_pic_doubleCMZI import qm_pic_doubleCMZI
 
-from .params import U2Params
+try:
+    from .params import U2Params
+except ImportError:
+    from params import U2Params
 
 
 @gf.cell
